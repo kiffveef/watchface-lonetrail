@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v7
         with:
           # uv.lock が無いのでキャッシュは効かない(警告を出さないよう明示的に無効化)
           enable-cache: false

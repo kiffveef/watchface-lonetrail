@@ -5,3 +5,7 @@
 # Pebble build artifacts
 /build/
 /.lock-waf*
+# build-all.sh の生成物
+/dist/
+/src/c/design_config.h
+/package.json.orig

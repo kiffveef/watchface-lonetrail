@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  # タグを打つ前に CI でビルドが通るか試すため。Release は作らず成果物だけ残す
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install pebble-tool and SDK
+        run: |
+          uv tool install pebble-tool
+          pebble sdk install latest
+          pebble sdk list
+
+      # タグ v0.1.0 と package.json の "0.1.0" が食い違ったまま配布しないようにする
+      - name: Check version matches tag
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "package.json version ($version) does not match tag (${GITHUB_REF_NAME})" >&2
+            exit 1
+          fi
+
+      - name: Build Route and Orbit
+        run: scripts/build-all.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pbw
+          path: dist/*.pbw
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.pbw
+          generate_release_notes: true

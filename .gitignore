@@ -9,3 +9,5 @@
 /dist/
 /src/c/design_config.h
 /package.json.orig
+# グローバルの ~/.config/git/ignore で .github が除外されているため、このリポジトリでは追跡する
+!.github/

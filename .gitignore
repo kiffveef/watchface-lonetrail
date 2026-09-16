@@ -1,0 +1,7 @@
+
+/.claude/
+/.mcp.json
+/.serena/
+# Pebble build artifacts
+/build/
+/.lock-waf*

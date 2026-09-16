@@ -141,8 +141,9 @@ static void prv_draw_texts(GContext *ctx, const LonetrailState *state) {
   // 月 日 曜日 の順(例: Sep 17 Thu)。右端の曜日から左へ詰める
   char weekday_buf[8];
   strftime(weekday_buf, sizeof(weekday_buf), "%a", now);
+  // 実機では DarkGray の曜日が掠れて見えるため月日と同じ黒にする
   int16_t weekday_left = prv_draw_text_right(ctx, weekday_buf, s_font_date, ORBIT_DAY_RECT,
-                                             GColorDarkGray);
+                                             GColorBlack);
   char date_buf[8];
   strftime(date_buf, sizeof(date_buf), "%b %d", now);
   GRect day_rect = ORBIT_DAY_RECT;

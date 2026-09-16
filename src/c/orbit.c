@@ -3,7 +3,7 @@
 // 座標はすべて emery(200x228)前提の仕様値
 #define ORBIT_CENTER_X (-60)
 #define ORBIT_CENTER_Y 114
-#define ORBIT_RING_WIDTH 3
+#define ORBIT_RING_WIDTH 5
 #define ORBIT_RING_HALF (ORBIT_RING_WIDTH / 2)
 #define ORBIT_TRACK_RADIUS 112
 
@@ -17,7 +17,7 @@
 
 // 文字はすべて右端 x=188 に右揃え
 #define ORBIT_TEXT_RIGHT 188
-#define ORBIT_DAY_RECT GRect(100, 50, 88, 24)
+#define ORBIT_DAY_RECT GRect(100, 56, 88, 24)
 #define ORBIT_WEEKDAY_GAP 4
 #define ORBIT_TIME_RECT GRect(40, 70, 148, 50)
 #define ORBIT_STEPS_UNIT_RECT GRect(100, 146, 88, 16)

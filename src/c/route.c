@@ -1,4 +1,5 @@
 #include "route.h"
+#include "morse.h"
 
 // 座標はすべて emery(200x228)前提の仕様値
 #define ROUTE_LINE_WIDTH 4
@@ -33,14 +34,23 @@
 #define ROUTE_MARKER_ARC_STEPS 12
 
 // 時刻ブロック(曜日+日付+時刻)の見た目の縦中心は t + OFFSET(Jost の余白を実測)
-#define ROUTE_TIME_BLOCK_CENTER_OFFSET 15
+#define ROUTE_TIME_BLOCK_CENTER_OFFSET 18
 #define ROUTE_TIME_X 54
 #define ROUTE_TIME_W 146
 #define ROUTE_TIME_H 50
 #define ROUTE_DATE_X 58
-#define ROUTE_DATE_Y_OFFSET 22
+#define ROUTE_DATE_Y_OFFSET 14
 #define ROUTE_DATE_H 20
 #define ROUTE_DATE_GAP 4
+
+// 状態のモールス表示(時刻の下)。BT切断・電池低下はこの表示だけで、他の描画は変えない
+#define ROUTE_MORSE_MARK_X 58
+#define ROUTE_MORSE_MARK_SIZE 4
+#define ROUTE_MORSE_TEXT_X 66
+#define ROUTE_MORSE_Y 154
+#define ROUTE_MORSE_ROW_GAP 7
+#define ROUTE_MORSE_TEXT_NO_LINK "NO LINK"
+#define ROUTE_MORSE_TEXT_LOW_BAT "LOW BAT"
 
 #define ROUTE_DATA_X 68
 #define ROUTE_DATA_Y 212
@@ -136,7 +146,7 @@ static void prv_draw_background(GContext *ctx, GRect bounds, const LonetrailStat
   graphics_context_set_stroke_width(ctx, ROUTE_LINE_WIDTH);
   for (size_t i = 0; i < ARRAY_LENGTH(s_lines); i++) {
     const RouteLine *line = &s_lines[i];
-    GColor color = state->bt_connected ? (GColor) { .argb = line->argb } : GColorDarkGray;
+    GColor color = (GColor) { .argb = line->argb };
     graphics_context_set_stroke_color(ctx, color);
     graphics_context_set_fill_color(ctx, color);
 
@@ -197,7 +207,7 @@ static int32_t prv_marker_distance(const LonetrailState *state, AnimationProgres
   return scaled / ROUTE_MINUTES_PER_DAY;
 }
 
-static void prv_draw_marker(GContext *ctx, RoutePose pose, bool battery_low) {
+static void prv_draw_marker(GContext *ctx, RoutePose pose) {
   gpath_move_to(s_marker_body, pose.pos);
   gpath_rotate_to(s_marker_body, pose.angle);
   gpath_move_to(s_marker_core, pose.pos);
@@ -209,7 +219,7 @@ static void prv_draw_marker(GContext *ctx, RoutePose pose, bool battery_low) {
   graphics_context_set_stroke_width(ctx, ROUTE_MARKER_STROKE);
   gpath_draw_outline(ctx, s_marker_body);
 
-  graphics_context_set_fill_color(ctx, battery_low ? GColorDarkCandyAppleRed : GColorBlack);
+  graphics_context_set_fill_color(ctx, GColorBlack);
   gpath_draw_filled(ctx, s_marker_core);
 }
 
@@ -275,9 +285,30 @@ static void prv_draw_data_row(GContext *ctx, GRect bounds, const LonetrailState 
   }
 }
 
+static void prv_draw_morse_row(GContext *ctx, const char *text, int16_t y) {
+  graphics_fill_rect(ctx,
+      GRect(ROUTE_MORSE_MARK_X, y - (ROUTE_MORSE_MARK_SIZE - MORSE_HEIGHT) / 2,
+            ROUTE_MORSE_MARK_SIZE, ROUTE_MORSE_MARK_SIZE),
+      0, GCornerNone);
+  morse_draw_text(ctx, text, GPoint(ROUTE_MORSE_TEXT_X, y));
+}
+
+static void prv_draw_status_morse(GContext *ctx, const LonetrailState *state) {
+  graphics_context_set_fill_color(ctx, GColorDarkGray);
+  int16_t y = ROUTE_MORSE_Y;
+  if (!state->bt_connected) {
+    prv_draw_morse_row(ctx, ROUTE_MORSE_TEXT_NO_LINK, y);
+    y += ROUTE_MORSE_ROW_GAP;
+  }
+  if (state->battery_low) {
+    prv_draw_morse_row(ctx, ROUTE_MORSE_TEXT_LOW_BAT, y);
+  }
+}
+
 static void prv_draw_dynamic(GContext *ctx, GRect bounds, const LonetrailState *state,
                              AnimationProgress progress) {
-  prv_draw_marker(ctx, prv_marker_pose(prv_marker_distance(state, progress)), state->battery_low);
+  prv_draw_status_morse(ctx, state);
+  prv_draw_marker(ctx, prv_marker_pose(prv_marker_distance(state, progress)));
   prv_draw_time_block(ctx, bounds, &state->now);
   prv_draw_data_row(ctx, bounds, state);
 }

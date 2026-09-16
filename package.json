@@ -15,7 +15,38 @@
       "watchface": true
     },
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "font",
+          "name": "FONT_JOST_BOLD_42",
+          "file": "fonts/Jost-Bold.ttf",
+          "characterRegex": "[0-9:]"
+        },
+        {
+          "type": "font",
+          "name": "FONT_JOST_REGULAR_18",
+          "file": "fonts/Jost-Regular.ttf",
+          "characterRegex": "[A-Za-z0-9 ]"
+        },
+        {
+          "type": "font",
+          "name": "FONT_JOST_BOLD_18",
+          "file": "fonts/Jost-Bold.ttf",
+          "characterRegex": "[A-Za-z0-9 ]"
+        },
+        {
+          "type": "font",
+          "name": "FONT_JOST_REGULAR_12",
+          "file": "fonts/Jost-Regular.ttf",
+          "characterRegex": "[A-Za-z0-9 ]"
+        },
+        {
+          "type": "font",
+          "name": "FONT_JOST_BOLD_12",
+          "file": "fonts/Jost-Bold.ttf",
+          "characterRegex": "[0-9,-]"
+        }
+      ]
     }
   }
 }

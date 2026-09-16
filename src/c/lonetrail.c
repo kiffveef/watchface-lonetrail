@@ -134,6 +134,10 @@ static void prv_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
 
+  if (s_design->load) {
+    s_design->load();
+  }
+
   s_background_layer = layer_create(bounds);
   layer_set_update_proc(s_background_layer, prv_background_update_proc);
   layer_add_child(window_layer, s_background_layer);
@@ -149,6 +153,9 @@ static void prv_window_unload(Window *window) {
   }
   layer_destroy(s_dynamic_layer);
   layer_destroy(s_background_layer);
+  if (s_design->unload) {
+    s_design->unload();
+  }
 }
 
 static void prv_init(void) {

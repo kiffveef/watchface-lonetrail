@@ -26,6 +26,9 @@ typedef struct {
 
 typedef struct {
   GColor background_color;
+  // Window の load / unload で呼ばれる。カスタムフォントの確保・解放用(NULL 可)
+  void (*load)(void);
+  void (*unload)(void);
   // 静的要素(路線・同心円など)。BT 状態変化時のみ再描画される
   void (*draw_background)(GContext *ctx, GRect bounds, const LonetrailState *state);
   // 動的要素(時刻・マーカー・データ行)。progress は演出中 MIN〜MAX、非演出時 MAX

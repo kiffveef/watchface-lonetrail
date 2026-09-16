@@ -1,12 +1,12 @@
 {
-  "name": "lonetail",
+  "name": "lonetrail",
   "author": "kiffveef",
   "version": "0.1.0",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {},
   "pebble": {
-    "displayName": "Lonetail",
+    "displayName": "Lonetrail",
     "uuid": "1b5f94df-5dff-49b3-bc95-54cc3dade94c",
     "sdkVersion": "3",
     "enableMultiJS": true,

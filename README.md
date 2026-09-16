@@ -1,4 +1,4 @@
-# Lonetail
+# Lonetrail
 
 Pebble Time 2 (emery, 200x228 カラー) 向けウォッチフェイス。C言語 + Pebble SDK で実装。
 
@@ -16,7 +16,7 @@ pebble sdk install latest
 ## ビルドと実行
 
 ```sh
-pebble build                                        # build/watchface-lonetail.pbw を生成
+pebble build                                        # build/watchface-lonetrail.pbw を生成
 pebble install --emulator emery                     # emery エミュレータで起動
 pebble screenshot --no-open --emulator emery shot.png
 pebble install --phone <ip>                         # 実機へインストール

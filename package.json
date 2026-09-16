@@ -49,6 +49,12 @@
           "name": "FONT_INTER_BOLD_16",
           "file": "fonts/Inter-Bold.ttf",
           "characterRegex": "[0-9,-]"
+        },
+        {
+          "type": "font",
+          "name": "FONT_BARLOW_CONDENSED_BOLD_56",
+          "file": "fonts/BarlowCondensed-Bold.ttf",
+          "characterRegex": "[0-9:]"
         }
       ]
     }

@@ -1,5 +1,8 @@
 #include "route.h"
 #include "morse.h"
+#include "design_select.h"
+
+#if !LONETRAIL_USE_ORBIT
 
 // 座標はすべて emery(200x228)前提の仕様値
 // 線幅は奇数で指定する(Pebble は偶数幅を次の奇数に丸めるため、4 と書いても 5 で描かれる)
@@ -288,3 +291,5 @@ const LonetrailDesign ROUTE_DESIGN = {
   .anim_value = prv_anim_value,
   .draw_dynamic = prv_draw_dynamic,
 };
+
+#endif

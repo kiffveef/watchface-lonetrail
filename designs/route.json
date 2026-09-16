@@ -3,5 +3,11 @@
   "pebble": {
     "displayName": "Lonetrail Route",
     "uuid": "1b5f94df-5dff-49b3-bc95-54cc3dade94c"
-  }
+  },
+  "media": [
+    "FONT_BARLOW_BOLD_48",
+    "FONT_INTER_REGULAR_16",
+    "FONT_INTER_BOLD_12",
+    "FONT_INTER_REGULAR_12"
+  ]
 }

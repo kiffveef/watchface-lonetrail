@@ -3,5 +3,11 @@
   "pebble": {
     "displayName": "Lonetrail Orbit",
     "uuid": "2dc39d4b-1a11-47d0-9273-05adae9ebe12"
-  }
+  },
+  "media": [
+    "FONT_BARLOW_CONDENSED_BOLD_56",
+    "FONT_INTER_REGULAR_16",
+    "FONT_INTER_BOLD_16",
+    "FONT_INTER_REGULAR_12"
+  ]
 }

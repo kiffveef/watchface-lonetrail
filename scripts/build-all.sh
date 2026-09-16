@@ -32,11 +32,16 @@ for design in "${designs[@]}"; do
     exit 1
   fi
 
-  # designs/<name>.json の値で package.json を浅くマージする(pebble 配下は1段深く)
+  # designs/<name>.json の値で package.json を浅くマージする(pebble 配下は1段深く)。
+  # "media" はそのデザインが使うリソース名の一覧で、package.json の resources.media をそれだけに絞る
   python3 - "$PACKAGE_JSON.orig" "$overlay" "$PACKAGE_JSON" <<'EOF'
 import json, sys
 base = json.load(open(sys.argv[1]))
 overlay = json.load(open(sys.argv[2]))
+keep = set(overlay.pop("media", []))
+if keep:
+    base["pebble"]["resources"]["media"] = [
+        r for r in base["pebble"]["resources"]["media"] if r["name"] in keep]
 base["pebble"].update(overlay.pop("pebble", {}))
 base.update(overlay)
 json.dump(base, open(sys.argv[3], "w"), indent=2, ensure_ascii=False)

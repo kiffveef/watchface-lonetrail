@@ -1,4 +1,7 @@
 #include "orbit.h"
+#include "design_select.h"
+
+#if LONETRAIL_USE_ORBIT
 
 // 座標はすべて emery(200x228)前提の仕様値
 #define ORBIT_BG_COLOR GColorPastelYellow
@@ -170,3 +173,5 @@ const LonetrailDesign ORBIT_DESIGN = {
   .anim_value = prv_anim_value,
   .draw_dynamic = prv_draw_dynamic,
 };
+
+#endif

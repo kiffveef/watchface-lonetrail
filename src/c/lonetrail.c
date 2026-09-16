@@ -11,15 +11,43 @@ static Layer *s_dynamic_layer;
 static Animation *s_animation;
 static AnimationProgress s_progress = ANIMATION_NORMALIZED_MAX;
 
-int32_t lonetrail_lerp(int32_t from, int32_t to, AnimationProgress progress) {
-  // 差分×progress が int32 を超えうる(角度を TRIG 単位で渡す場合)ため 64bit で計算する
-  return from + (int32_t)((int64_t)(to - from) * progress / ANIMATION_NORMALIZED_MAX);
+// --- Helpers for designs ---
+
+void lonetrail_fonts_load(const LonetrailFontSpec *specs, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    *specs[i].slot = fonts_load_custom_font(resource_get_handle(specs[i].resource_id));
+  }
 }
 
-void lonetrail_format_value(char *buf, size_t len, int32_t value) {
+void lonetrail_fonts_unload(const LonetrailFontSpec *specs, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    fonts_unload_custom_font(*specs[i].slot);
+  }
+}
+
+GRect lonetrail_draw_text(GContext *ctx, const char *text, GFont font, GRect box, GColor color,
+                          GTextAlignment align) {
+  graphics_context_set_text_color(ctx, color);
+  graphics_draw_text(ctx, text, font, box, GTextOverflowModeTrailingEllipsis, align, NULL);
+  GSize size = graphics_text_layout_get_content_size(text, font, box,
+      GTextOverflowModeTrailingEllipsis, align);
+  int16_t x = box.origin.x;
+  if (align == GTextAlignmentRight) {
+    x = box.origin.x + box.size.w - size.w;
+  } else if (align == GTextAlignmentCenter) {
+    x = box.origin.x + (box.size.w - size.w) / 2;
+  }
+  return GRect(x, box.origin.y, size.w, size.h);
+}
+
+void lonetrail_format_time(char *buf, size_t len, const struct tm *t) {
+  strftime(buf, len, clock_is_24h_style() ? "%H:%M" : "%I:%M", t);
+}
+
+bool lonetrail_format_value(char *buf, size_t len, int32_t value) {
   if (value < 0) {
     snprintf(buf, len, "--");
-    return;
+    return false;
   }
   // 末尾から桁を詰め、3桁ごとにカンマを挟む
   char tmp[16];
@@ -35,6 +63,7 @@ void lonetrail_format_value(char *buf, size_t len, int32_t value) {
     digits++;
   } while (value > 0);
   snprintf(buf, len, "%s", &tmp[pos]);
+  return true;
 }
 
 // --- Layers ---
@@ -44,7 +73,11 @@ static void prv_background_update_proc(Layer *layer, GContext *ctx) {
 }
 
 static void prv_dynamic_update_proc(Layer *layer, GContext *ctx) {
-  s_design->draw_dynamic(ctx, layer_get_bounds(layer), &s_state, s_progress);
+  int32_t from = s_design->anim_value(&s_state.prev);
+  int32_t to = s_design->anim_value(&s_state.now);
+  // 差分×progress が int32 を超えうる(角度を TRIG 単位で渡す場合)ため 64bit で計算する
+  int32_t value = from + (int32_t)((int64_t)(to - from) * s_progress / ANIMATION_NORMALIZED_MAX);
+  s_design->draw_dynamic(ctx, layer_get_bounds(layer), &s_state, value);
 }
 
 // --- Animation ---
@@ -68,7 +101,7 @@ static void prv_start_animation(void) {
   if (s_animation) {
     animation_unschedule(s_animation);
   }
-  bool wrap = s_design->is_wrap && s_design->is_wrap(&s_state.prev, &s_state.now);
+  bool wrap = s_design->anim_value(&s_state.now) < s_design->anim_value(&s_state.prev);
   s_animation = animation_create();
   animation_set_implementation(s_animation, &s_animation_impl);
   animation_set_duration(s_animation,
@@ -89,16 +122,16 @@ static void prv_tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   prv_start_animation();
 }
 
+static bool prv_metric_accessible(HealthMetric metric, time_t start, time_t end) {
+  return health_service_metric_accessible(metric, start, end)
+      & HealthServiceAccessibilityMaskAvailable;
+}
+
 static void prv_update_health(void) {
   time_t now = time(NULL);
-  HealthServiceAccessibilityMask steps_mask =
-      health_service_metric_accessible(HealthMetricStepCount, time_start_of_today(), now);
-  s_state.steps = (steps_mask & HealthServiceAccessibilityMaskAvailable)
+  s_state.steps = prv_metric_accessible(HealthMetricStepCount, time_start_of_today(), now)
       ? health_service_sum_today(HealthMetricStepCount) : -1;
-
-  HealthServiceAccessibilityMask bpm_mask =
-      health_service_metric_accessible(HealthMetricHeartRateBPM, now, now);
-  s_state.bpm = (bpm_mask & HealthServiceAccessibilityMaskAvailable)
+  s_state.bpm = prv_metric_accessible(HealthMetricHeartRateBPM, now, now)
       ? health_service_peek_current_value(HealthMetricHeartRateBPM) : -1;
   // 心拍 0 はセンサー未計測なので「値なし」として扱う
   if (s_state.bpm == 0) {
@@ -123,8 +156,12 @@ static void prv_connection_handler(bool connected) {
   layer_mark_dirty(s_dynamic_layer);
 }
 
+static bool prv_is_battery_low(BatteryChargeState charge) {
+  return charge.charge_percent <= LONETRAIL_BATTERY_LOW_PERCENT;
+}
+
 static void prv_battery_handler(BatteryChargeState charge) {
-  s_state.battery_low = charge.charge_percent <= LONETRAIL_BATTERY_LOW_PERCENT;
+  s_state.battery_low = prv_is_battery_low(charge);
   layer_mark_dirty(s_dynamic_layer);
 }
 
@@ -164,8 +201,7 @@ static void prv_init(void) {
   s_state.now = *localtime(&now);
   s_state.prev = s_state.now;
   s_state.bt_connected = connection_service_peek_pebble_app_connection();
-  s_state.battery_low =
-      battery_state_service_peek().charge_percent <= LONETRAIL_BATTERY_LOW_PERCENT;
+  s_state.battery_low = prv_is_battery_low(battery_state_service_peek());
   s_state.steps = -1;
   s_state.bpm = -1;
   if (health_service_events_subscribe(prv_health_handler, NULL)) {

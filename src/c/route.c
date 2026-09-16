@@ -2,10 +2,9 @@
 #include "morse.h"
 
 // 座標はすべて emery(200x228)前提の仕様値
-#define ROUTE_LINE_WIDTH 4
-// Pebble は偶数の線幅を次の奇数に丸めて描くため、実際の太さは 5px
-#define ROUTE_LINE_RENDERED_WIDTH (ROUTE_LINE_WIDTH | 1)
-#define ROUTE_LINE_HALF (ROUTE_LINE_RENDERED_WIDTH / 2)
+// 線幅は奇数で指定する(Pebble は偶数幅を次の奇数に丸めるため、4 と書いても 5 で描かれる)
+#define ROUTE_LINE_WIDTH 5
+#define ROUTE_LINE_HALF (ROUTE_LINE_WIDTH / 2)
 #define ROUTE_ARC_CENTER_X 70
 #define ROUTE_ARC_CENTER_Y 164
 #define ROUTE_ARC_START_DEG 180
@@ -33,13 +32,11 @@
 // ピル両端の半円を何分割した多角形にするか
 #define ROUTE_MARKER_ARC_STEPS 12
 
-// 時刻ブロック(曜日+日付+時刻)の見た目の縦中心は t + OFFSET(Jost の余白を実測)
-#define ROUTE_TIME_BLOCK_CENTER_OFFSET 18
-#define ROUTE_TIME_X 54
-#define ROUTE_TIME_W 146
-#define ROUTE_TIME_H 50
+// 時刻ブロック(月日+曜日+時刻)。t は見た目の縦中心が画面中央に来る値(実測)
+#define ROUTE_TIME_T 96
+#define ROUTE_TIME_RECT GRect(54, ROUTE_TIME_T, 146, 50)
 #define ROUTE_DATE_X 58
-#define ROUTE_DATE_Y_OFFSET 14
+#define ROUTE_DATE_Y (ROUTE_TIME_T - 14)
 #define ROUTE_DATE_H 20
 #define ROUTE_DATE_GAP 4
 
@@ -49,8 +46,6 @@
 #define ROUTE_MORSE_TEXT_X 66
 #define ROUTE_MORSE_Y 154
 #define ROUTE_MORSE_ROW_GAP 7
-#define ROUTE_MORSE_TEXT_NO_LINK "NO LINK"
-#define ROUTE_MORSE_TEXT_LOW_BAT "LOW BAT"
 
 #define ROUTE_DATA_X 68
 #define ROUTE_DATA_Y 212
@@ -72,18 +67,17 @@ static const RouteLine s_lines[] = {
 };
 
 // 時刻は DIN 系の Barlow、日付・データ行は Inter(いずれも Google Fonts / OFL)
-#define ROUTE_FONT_TIME RESOURCE_ID_FONT_BARLOW_BOLD_48
-#define ROUTE_FONT_WEEKDAY RESOURCE_ID_FONT_INTER_REGULAR_16
-#define ROUTE_FONT_DATE RESOURCE_ID_FONT_INTER_REGULAR_16
-#define ROUTE_FONT_VALUE RESOURCE_ID_FONT_INTER_BOLD_12
-#define ROUTE_FONT_UNIT RESOURCE_ID_FONT_INTER_REGULAR_12
-
-// カスタムフォントは load で確保し unload で解放する
 static GFont s_font_time;
-static GFont s_font_weekday;
 static GFont s_font_date;
 static GFont s_font_value;
 static GFont s_font_unit;
+
+static const LonetrailFontSpec s_fonts[] = {
+  { &s_font_time, RESOURCE_ID_FONT_BARLOW_BOLD_48 },
+  { &s_font_date, RESOURCE_ID_FONT_INTER_REGULAR_16 },
+  { &s_font_value, RESOURCE_ID_FONT_INTER_BOLD_12 },
+  { &s_font_unit, RESOURCE_ID_FONT_INTER_REGULAR_12 },
+};
 
 // 進行方向に合わせて回転させるため、マーカーは原点中心の GPath で持つ
 static GPoint s_marker_body_points[(ROUTE_MARKER_ARC_STEPS + 1) * 2];
@@ -123,21 +117,13 @@ static void prv_load(void) {
   prv_build_marker_body();
   s_marker_body = gpath_create(&s_marker_body_info);
   s_marker_core = gpath_create(&s_marker_core_info);
-  s_font_time = fonts_load_custom_font(resource_get_handle(ROUTE_FONT_TIME));
-  s_font_weekday = fonts_load_custom_font(resource_get_handle(ROUTE_FONT_WEEKDAY));
-  s_font_date = fonts_load_custom_font(resource_get_handle(ROUTE_FONT_DATE));
-  s_font_value = fonts_load_custom_font(resource_get_handle(ROUTE_FONT_VALUE));
-  s_font_unit = fonts_load_custom_font(resource_get_handle(ROUTE_FONT_UNIT));
+  lonetrail_fonts_load(s_fonts, ARRAY_LENGTH(s_fonts));
 }
 
 static void prv_unload(void) {
   gpath_destroy(s_marker_body);
   gpath_destroy(s_marker_core);
-  fonts_unload_custom_font(s_font_time);
-  fonts_unload_custom_font(s_font_weekday);
-  fonts_unload_custom_font(s_font_date);
-  fonts_unload_custom_font(s_font_value);
-  fonts_unload_custom_font(s_font_unit);
+  lonetrail_fonts_unload(s_fonts, ARRAY_LENGTH(s_fonts));
 }
 
 static void prv_draw_background(GContext *ctx, GRect bounds, const LonetrailState *state) {
@@ -156,15 +142,16 @@ static void prv_draw_background(GContext *ctx, GRect bounds, const LonetrailStat
     int16_t outer = line->radius + ROUTE_LINE_HALF;
     graphics_fill_radial(ctx,
         GRect(ROUTE_ARC_CENTER_X - outer, ROUTE_ARC_CENTER_Y - outer, outer * 2 + 1, outer * 2 + 1),
-        GOvalScaleModeFitCircle, ROUTE_LINE_RENDERED_WIDTH,
+        GOvalScaleModeFitCircle, ROUTE_LINE_WIDTH,
         DEG_TO_TRIGANGLE(ROUTE_ARC_START_DEG), DEG_TO_TRIGANGLE(ROUTE_ARC_END_DEG));
     graphics_draw_line(ctx, GPoint(ROUTE_ARC_CENTER_X, horizontal_y),
                        GPoint(bounds.size.w, horizontal_y));
   }
 }
 
-static int32_t prv_minute_of_day(const struct tm *t) {
-  return t->tm_hour * 60 + t->tm_min;
+// 演出で補間する値: 0時からの経過分 × 経路長(分単位だと1分の移動 約0.2px が段になるため)
+static int32_t prv_anim_value(const struct tm *t) {
+  return (t->tm_hour * 60 + t->tm_min) * ROUTE_PATH_TOTAL_LEN;
 }
 
 typedef struct {
@@ -199,14 +186,6 @@ static RoutePose prv_marker_pose(int32_t d) {
   };
 }
 
-static int32_t prv_marker_distance(const LonetrailState *state, AnimationProgress progress) {
-  // 分単位で補間すると1分の移動(約0.2px)が段になるため、経路長倍のまま補間して最後に割る
-  int32_t scaled = lonetrail_lerp(prv_minute_of_day(&state->prev) * ROUTE_PATH_TOTAL_LEN,
-                                  prv_minute_of_day(&state->now) * ROUTE_PATH_TOTAL_LEN,
-                                  progress);
-  return scaled / ROUTE_MINUTES_PER_DAY;
-}
-
 static void prv_draw_marker(GContext *ctx, RoutePose pose) {
   gpath_move_to(s_marker_body, pose.pos);
   gpath_rotate_to(s_marker_body, pose.angle);
@@ -223,47 +202,35 @@ static void prv_draw_marker(GContext *ctx, RoutePose pose) {
   gpath_draw_filled(ctx, s_marker_core);
 }
 
-static int16_t prv_text_width(GContext *ctx, const char *text, GFont font, GRect box) {
-  return graphics_text_layout_get_content_size(text, font, box,
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft).w;
-}
-
-// 左揃えで描画し、次の要素の開始 x を返す
-static int16_t prv_draw_text_left(GContext *ctx, const char *text, GFont font,
-                                  GRect box, GColor color) {
-  graphics_context_set_text_color(ctx, color);
-  graphics_draw_text(ctx, text, font, box, GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-  return box.origin.x + prv_text_width(ctx, text, font, box);
+// 左揃えで描き、次の要素の開始 x を返す
+static int16_t prv_draw_text_left(GContext *ctx, const char *text, GFont font, GRect box,
+                                  GColor color) {
+  GRect drawn = lonetrail_draw_text(ctx, text, font, box, color, GTextAlignmentLeft);
+  return drawn.origin.x + drawn.size.w;
 }
 
 static void prv_draw_time_block(GContext *ctx, GRect bounds, const struct tm *now) {
-  int16_t t = bounds.size.h / 2 - ROUTE_TIME_BLOCK_CENTER_OFFSET;
+  char time_buf[LONETRAIL_TIME_BUF_LEN];
+  lonetrail_format_time(time_buf, sizeof(time_buf), now);
+  prv_draw_text_left(ctx, time_buf, s_font_time, ROUTE_TIME_RECT, GColorWhite);
 
-  char time_buf[8];
-  strftime(time_buf, sizeof(time_buf), clock_is_24h_style() ? "%H:%M" : "%I:%M", now);
-  prv_draw_text_left(ctx, time_buf, s_font_time,
-                     GRect(ROUTE_TIME_X, t, ROUTE_TIME_W, ROUTE_TIME_H), GColorWhite);
-
-  // 月 日 曜日 の順(例: Sep 17 Thu)
-  char date_buf[8];
-  strftime(date_buf, sizeof(date_buf), "%b %d", now);
-  int16_t date_y = t - ROUTE_DATE_Y_OFFSET;
+  char date_buf[LONETRAIL_DATE_BUF_LEN];
+  strftime(date_buf, sizeof(date_buf), LONETRAIL_FMT_DATE, now);
   int16_t weekday_x = prv_draw_text_left(ctx, date_buf, s_font_date,
-      GRect(ROUTE_DATE_X, date_y, bounds.size.w - ROUTE_DATE_X, ROUTE_DATE_H), GColorWhite)
+      GRect(ROUTE_DATE_X, ROUTE_DATE_Y, bounds.size.w - ROUTE_DATE_X, ROUTE_DATE_H), GColorWhite)
       + ROUTE_DATE_GAP;
 
-  char weekday_buf[8];
-  strftime(weekday_buf, sizeof(weekday_buf), "%a", now);
-  prv_draw_text_left(ctx, weekday_buf, s_font_weekday,
-      GRect(weekday_x, date_y, bounds.size.w - weekday_x, ROUTE_DATE_H), GColorLightGray);
+  char weekday_buf[LONETRAIL_DATE_BUF_LEN];
+  strftime(weekday_buf, sizeof(weekday_buf), LONETRAIL_FMT_WEEKDAY, now);
+  prv_draw_text_left(ctx, weekday_buf, s_font_date,
+      GRect(weekday_x, ROUTE_DATE_Y, bounds.size.w - weekday_x, ROUTE_DATE_H), GColorLightGray);
 }
 
 static void prv_draw_data_row(GContext *ctx, GRect bounds, const LonetrailState *state) {
   char steps_buf[LONETRAIL_VALUE_BUF_LEN];
   char bpm_buf[LONETRAIL_VALUE_BUF_LEN];
-  lonetrail_format_value(steps_buf, sizeof(steps_buf), state->steps);
-  lonetrail_format_value(bpm_buf, sizeof(bpm_buf), state->bpm);
+  bool has_steps = lonetrail_format_value(steps_buf, sizeof(steps_buf), state->steps);
+  bool has_bpm = lonetrail_format_value(bpm_buf, sizeof(bpm_buf), state->bpm);
 
   const struct {
     const char *text;
@@ -271,9 +238,9 @@ static void prv_draw_data_row(GContext *ctx, GRect bounds, const LonetrailState 
     bool is_value;
     int16_t gap_after;
   } items[] = {
-    { steps_buf, s_font_value, state->steps >= 0, ROUTE_DATA_UNIT_GAP },
+    { steps_buf, s_font_value, has_steps, ROUTE_DATA_UNIT_GAP },
     { "steps", s_font_unit, false, ROUTE_DATA_ITEM_GAP },
-    { bpm_buf, s_font_value, state->bpm >= 0, ROUTE_DATA_UNIT_GAP },
+    { bpm_buf, s_font_value, has_bpm, ROUTE_DATA_UNIT_GAP },
     { "bpm", s_font_unit, false, 0 },
   };
 
@@ -297,25 +264,20 @@ static void prv_draw_status_morse(GContext *ctx, const LonetrailState *state) {
   graphics_context_set_fill_color(ctx, GColorDarkGray);
   int16_t y = ROUTE_MORSE_Y;
   if (!state->bt_connected) {
-    prv_draw_morse_row(ctx, ROUTE_MORSE_TEXT_NO_LINK, y);
+    prv_draw_morse_row(ctx, "NO LINK", y);
     y += ROUTE_MORSE_ROW_GAP;
   }
   if (state->battery_low) {
-    prv_draw_morse_row(ctx, ROUTE_MORSE_TEXT_LOW_BAT, y);
+    prv_draw_morse_row(ctx, "LOW BAT", y);
   }
 }
 
 static void prv_draw_dynamic(GContext *ctx, GRect bounds, const LonetrailState *state,
-                             AnimationProgress progress) {
+                             int32_t anim_value) {
   prv_draw_status_morse(ctx, state);
-  prv_draw_marker(ctx, prv_marker_pose(prv_marker_distance(state, progress)));
+  prv_draw_marker(ctx, prv_marker_pose(anim_value / ROUTE_MINUTES_PER_DAY));
   prv_draw_time_block(ctx, bounds, &state->now);
   prv_draw_data_row(ctx, bounds, state);
-}
-
-// 日付変化(23:59→0:00)で先頭へ戻るときだけ長い演出にする
-static bool prv_is_wrap(const struct tm *prev, const struct tm *now) {
-  return prv_minute_of_day(now) < prv_minute_of_day(prev);
 }
 
 const LonetrailDesign ROUTE_DESIGN = {
@@ -323,6 +285,6 @@ const LonetrailDesign ROUTE_DESIGN = {
   .load = prv_load,
   .unload = prv_unload,
   .draw_background = prv_draw_background,
+  .anim_value = prv_anim_value,
   .draw_dynamic = prv_draw_dynamic,
-  .is_wrap = prv_is_wrap,
 };

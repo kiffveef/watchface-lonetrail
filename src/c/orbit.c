@@ -1,6 +1,7 @@
 #include "orbit.h"
 
 // 座標はすべて emery(200x228)前提の仕様値
+#define ORBIT_BG_COLOR GColorPastelYellow
 #define ORBIT_CENTER_X (-60)
 #define ORBIT_CENTER_Y 114
 #define ORBIT_RING_WIDTH 5
@@ -13,11 +14,13 @@
 #define ORBIT_MINUTES_PER_HOUR 60
 // 分を細分化して補間する(TRIG_MAX_ANGLE × 59分 × 分割数 が int32 に収まる範囲)
 #define ORBIT_MINUTE_SUBDIV 64
+#define ORBIT_MINUTE_SCALE (ORBIT_MINUTES_PER_HOUR * ORBIT_MINUTE_SUBDIV)
 #define ORBIT_MOON_RADIUS 6
 
 // 文字はすべて右端 x=188 に右揃え
 #define ORBIT_TEXT_RIGHT 188
-#define ORBIT_DAY_RECT GRect(100, 59, 88, 24)
+#define ORBIT_DAY_Y 59
+#define ORBIT_DAY_H 24
 #define ORBIT_WEEKDAY_GAP 4
 #define ORBIT_TIME_RECT GRect(40, 70, 148, 60)
 #define ORBIT_STEPS_UNIT_RECT GRect(100, 146, 88, 16)
@@ -41,30 +44,25 @@ static const int8_t s_moon_half_width[ORBIT_MOON_RADIUS * 2 + 1] = {
   0, 3, 4, 5, 6, 6, 6, 6, 6, 5, 4, 3, 0,
 };
 
-// フォントは Route と同じ Barlow(時刻)/ Inter(その他)。値は Orbit のほうが余裕があるので 16
-#define ORBIT_FONT_TIME RESOURCE_ID_FONT_BARLOW_CONDENSED_BOLD_56
-#define ORBIT_FONT_DATE RESOURCE_ID_FONT_INTER_REGULAR_16
-#define ORBIT_FONT_VALUE RESOURCE_ID_FONT_INTER_BOLD_16
-#define ORBIT_FONT_UNIT RESOURCE_ID_FONT_INTER_REGULAR_12
-
-// カスタムフォントは load で確保し unload で解放する
+// フォントは Route と同じ系統。時刻は幅の狭い Condensed で大きく、値は余裕があるので 16
 static GFont s_font_time;
 static GFont s_font_date;
 static GFont s_font_value;
 static GFont s_font_unit;
 
+static const LonetrailFontSpec s_fonts[] = {
+  { &s_font_time, RESOURCE_ID_FONT_BARLOW_CONDENSED_BOLD_56 },
+  { &s_font_date, RESOURCE_ID_FONT_INTER_REGULAR_16 },
+  { &s_font_value, RESOURCE_ID_FONT_INTER_BOLD_16 },
+  { &s_font_unit, RESOURCE_ID_FONT_INTER_REGULAR_12 },
+};
+
 static void prv_load(void) {
-  s_font_time = fonts_load_custom_font(resource_get_handle(ORBIT_FONT_TIME));
-  s_font_date = fonts_load_custom_font(resource_get_handle(ORBIT_FONT_DATE));
-  s_font_value = fonts_load_custom_font(resource_get_handle(ORBIT_FONT_VALUE));
-  s_font_unit = fonts_load_custom_font(resource_get_handle(ORBIT_FONT_UNIT));
+  lonetrail_fonts_load(s_fonts, ARRAY_LENGTH(s_fonts));
 }
 
 static void prv_unload(void) {
-  fonts_unload_custom_font(s_font_time);
-  fonts_unload_custom_font(s_font_date);
-  fonts_unload_custom_font(s_font_value);
-  fonts_unload_custom_font(s_font_unit);
+  lonetrail_fonts_unload(s_fonts, ARRAY_LENGTH(s_fonts));
 }
 
 static GRect prv_circle_rect(int16_t outer) {
@@ -84,16 +82,14 @@ static void prv_draw_background(GContext *ctx, GRect bounds, const LonetrailStat
   graphics_draw_circle(ctx, GPoint(ORBIT_CENTER_X, ORBIT_CENTER_Y), ORBIT_TRACK_RADIUS);
 }
 
-// 分(細分化済み)を前回値と目標値で補間する
-static int32_t prv_minute_scaled(const LonetrailState *state, AnimationProgress progress) {
-  return lonetrail_lerp(state->prev.tm_min * ORBIT_MINUTE_SUBDIV,
-                        state->now.tm_min * ORBIT_MINUTE_SUBDIV, progress);
+// 演出で補間する値: 分 × 分割数。毎時の折り返し(59→0)は値が減るので長い演出になる
+static int32_t prv_anim_value(const struct tm *t) {
+  return t->tm_min * ORBIT_MINUTE_SUBDIV;
 }
 
 static GPoint prv_moon_center(int32_t minute_scaled) {
   int32_t angle = DEG_TO_TRIGANGLE(ORBIT_ANGLE_START_DEG)
-      + DEG_TO_TRIGANGLE(ORBIT_ANGLE_SWEEP_DEG) * minute_scaled
-        / (ORBIT_MINUTES_PER_HOUR * ORBIT_MINUTE_SUBDIV);
+      + DEG_TO_TRIGANGLE(ORBIT_ANGLE_SWEEP_DEG) * minute_scaled / ORBIT_MINUTE_SCALE;
   return GPoint(ORBIT_CENTER_X + cos_lookup(angle) * ORBIT_TRACK_RADIUS / TRIG_MAX_RATIO,
                 ORBIT_CENTER_Y + sin_lookup(angle) * ORBIT_TRACK_RADIUS / TRIG_MAX_RATIO);
 }
@@ -102,13 +98,13 @@ static GPoint prv_moon_center(int32_t minute_scaled) {
 static void prv_draw_moon(GContext *ctx, GPoint center, int32_t minute_scaled, bool battery_low) {
   GColor color = battery_low ? GColorDarkCandyAppleRed : GColorBlack;
   // 背景レイヤーの軌道線が月の中を通らないよう、先に背景色で塗りつぶす
-  graphics_context_set_fill_color(ctx, GColorPastelYellow);
+  graphics_context_set_fill_color(ctx, ORBIT_BG_COLOR);
   graphics_fill_circle(ctx, center, ORBIT_MOON_RADIUS);
   graphics_context_set_stroke_color(ctx, color);
   graphics_context_set_stroke_width(ctx, 1);
   graphics_draw_circle(ctx, center, ORBIT_MOON_RADIUS);
 
-  int32_t phase_angle = TRIG_MAX_ANGLE * minute_scaled / (ORBIT_MINUTES_PER_HOUR * ORBIT_MINUTE_SUBDIV);
+  int32_t phase_angle = TRIG_MAX_ANGLE * minute_scaled / ORBIT_MINUTE_SCALE;
   bool waxing = phase_angle < TRIG_MAX_ANGLE / 2;
   int32_t cos_phase = cos_lookup(phase_angle);
   graphics_context_set_fill_color(ctx, color);
@@ -127,62 +123,50 @@ static void prv_draw_moon(GContext *ctx, GPoint center, int32_t minute_scaled, b
 // 右揃えで描き、描画した文字列の左端 x を返す
 static int16_t prv_draw_text_right(GContext *ctx, const char *text, GFont font, GRect box,
                                    GColor color) {
-  graphics_context_set_text_color(ctx, color);
-  graphics_draw_text(ctx, text, font, box, GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentRight, NULL);
-  int16_t w = graphics_text_layout_get_content_size(text, font, box,
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight).w;
-  return box.origin.x + box.size.w - w;
+  return lonetrail_draw_text(ctx, text, font, box, color, GTextAlignmentRight).origin.x;
 }
 
 static void prv_draw_texts(GContext *ctx, const LonetrailState *state) {
   const struct tm *now = &state->now;
 
-  // 月 日 曜日 の順(例: Sep 17 Thu)。右端の曜日から左へ詰める
-  char weekday_buf[8];
-  strftime(weekday_buf, sizeof(weekday_buf), "%a", now);
+  // 月 日 曜日 の順(例: Sep 17 Thu)。右端の曜日から左へ詰める。
   // 実機では DarkGray の曜日が掠れて見えるため月日と同じ黒にする
-  int16_t weekday_left = prv_draw_text_right(ctx, weekday_buf, s_font_date, ORBIT_DAY_RECT,
-                                             GColorBlack);
-  char date_buf[8];
-  strftime(date_buf, sizeof(date_buf), "%b %d", now);
-  GRect day_rect = ORBIT_DAY_RECT;
+  char weekday_buf[LONETRAIL_DATE_BUF_LEN];
+  strftime(weekday_buf, sizeof(weekday_buf), LONETRAIL_FMT_WEEKDAY, now);
+  int16_t weekday_left = prv_draw_text_right(ctx, weekday_buf, s_font_date,
+      GRect(0, ORBIT_DAY_Y, ORBIT_TEXT_RIGHT, ORBIT_DAY_H), GColorBlack);
+  char date_buf[LONETRAIL_DATE_BUF_LEN];
+  strftime(date_buf, sizeof(date_buf), LONETRAIL_FMT_DATE, now);
   prv_draw_text_right(ctx, date_buf, s_font_date,
-      GRect(0, day_rect.origin.y, weekday_left - ORBIT_WEEKDAY_GAP, day_rect.size.h), GColorBlack);
+      GRect(0, ORBIT_DAY_Y, weekday_left - ORBIT_WEEKDAY_GAP, ORBIT_DAY_H), GColorBlack);
 
-  char time_buf[8];
-  strftime(time_buf, sizeof(time_buf), clock_is_24h_style() ? "%H:%M" : "%I:%M", now);
+  char time_buf[LONETRAIL_TIME_BUF_LEN];
+  lonetrail_format_time(time_buf, sizeof(time_buf), now);
   prv_draw_text_right(ctx, time_buf, s_font_time, ORBIT_TIME_RECT, GColorBlack);
 
   char steps_buf[LONETRAIL_VALUE_BUF_LEN];
   char bpm_buf[LONETRAIL_VALUE_BUF_LEN];
-  lonetrail_format_value(steps_buf, sizeof(steps_buf), state->steps);
-  lonetrail_format_value(bpm_buf, sizeof(bpm_buf), state->bpm);
+  bool has_steps = lonetrail_format_value(steps_buf, sizeof(steps_buf), state->steps);
+  bool has_bpm = lonetrail_format_value(bpm_buf, sizeof(bpm_buf), state->bpm);
   prv_draw_text_right(ctx, "steps", s_font_unit, ORBIT_STEPS_UNIT_RECT, GColorDarkGray);
   prv_draw_text_right(ctx, steps_buf, s_font_value, ORBIT_STEPS_RECT,
-                      state->steps >= 0 ? GColorBlack : GColorDarkGray);
+                      has_steps ? GColorBlack : GColorDarkGray);
   prv_draw_text_right(ctx, "bpm", s_font_unit, ORBIT_BPM_UNIT_RECT, GColorDarkGray);
   prv_draw_text_right(ctx, bpm_buf, s_font_value, ORBIT_BPM_RECT,
-                      state->bpm >= 0 ? GColorBlack : GColorDarkGray);
+                      has_bpm ? GColorBlack : GColorDarkGray);
 }
 
 static void prv_draw_dynamic(GContext *ctx, GRect bounds, const LonetrailState *state,
-                             AnimationProgress progress) {
-  int32_t minute_scaled = prv_minute_scaled(state, progress);
-  prv_draw_moon(ctx, prv_moon_center(minute_scaled), minute_scaled, state->battery_low);
+                             int32_t anim_value) {
+  prv_draw_moon(ctx, prv_moon_center(anim_value), anim_value, state->battery_low);
   prv_draw_texts(ctx, state);
 }
 
-// 毎時の折り返し(59分→0分)は軌道を逆向きに一気に戻す
-static bool prv_is_wrap(const struct tm *prev, const struct tm *now) {
-  return now->tm_min < prev->tm_min;
-}
-
 const LonetrailDesign ORBIT_DESIGN = {
-  .background_color = GColorPastelYellow,
+  .background_color = ORBIT_BG_COLOR,
   .load = prv_load,
   .unload = prv_unload,
   .draw_background = prv_draw_background,
+  .anim_value = prv_anim_value,
   .draw_dynamic = prv_draw_dynamic,
-  .is_wrap = prv_is_wrap,
 };
